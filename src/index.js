@@ -19,9 +19,8 @@ const client = new Client({
 });
 
 AWS.config.update({
-    accessKeyId: 'AKIA47ISPG2RUUZWX7PP',
-    secretAccessKey: 'P4xqMsVGTn+siySsnLHN84KBTHnSt0zQeI8wctuT',
-     // Specify your AWS region
+    accessKeyId: process.env.KEY,
+    secretAccessKey: process.env.SECRET,
   });
 
 const s3 = new AWS.S3();
