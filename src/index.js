@@ -1,14 +1,20 @@
 const { Client, IntentsBitField } = require('discord.js');
-const AWS = require('aws-sdk');
 const ffmpeg = require('fluent-ffmpeg');
 const concat = require('concat-stream');
+const AWS = require('aws-sdk');
+const { ModalBuilder, ActionRowBuilder, TextInputBuilder, TextInputStyle } = require("discord.js");
+const { PrismaClient } = require('@prisma/client');
+
 const fs = require('fs');
 const path = require('path');
 const { joinVoiceChannel } = require('@discordjs/voice');
+
 require('dotenv').config();
+
+const prisma = new PrismaClient();
+
 const { createWriteStream, existsSync } = require("fs");
 const { OpusEncoder } = require('@discordjs/opus'); // Import OpusEncoder
-
 
 const client = new Client({
     intents: [
@@ -18,12 +24,10 @@ const client = new Client({
     ]
 });
 
-AWS.config.update({
+const s3 = new AWS.S3({
     accessKeyId: process.env.KEY,
-    secretAccessKey: process.env.SECRET,
-  });
-
-const s3 = new AWS.S3();
+    secretAccessKey: process.env.SECRET_KEY,
+});
 
 let currentConnection = null;
 let isRecording = false;
@@ -39,21 +43,27 @@ const createNewChunk = () => {
     return createWriteStream(pathToFile);
 };
 
+outputStream = createNewChunk();
+
 const encoder = new OpusEncoder(48000, 2); // Create the OpusEncoder instance
 const frameSize = 20;
 
 // Define a Map to keep track of voice channel user counts
 const voiceChannelUserCounts = new Map();
 
-// Function to check if the bot should join the voice channel
-function checkAndJoinVoiceChannel(channel) {
-    const userCount = channel.members.size;
+
+// Function to check if the bot should join the voice channel or leave it
+async function checkAndJoinVoiceChannel(channel) {
+    // Filter out the bot from the user count
+    const userCount = channel.members.filter(member => !member.user.bot).size;
+
     if (userCount >= 2 && !voiceChannelUserCounts.has(channel.id)) {
+        // User count increased and bot is not in the channel, join and start recording
         try {
             const connection = joinVoiceChannel({
                 channelId: channel.id,
                 guildId: channel.guild.id,
-                adapterCreator: channel.guild.voiceAdapterCreator
+                adapterCreator: channel.guild.voiceAdapterCreator,
             });
 
             voiceChannelUserCounts.set(channel.id, userCount);
@@ -73,12 +83,98 @@ function checkAndJoinVoiceChannel(channel) {
 
             audioStream.on('end', () => {
                 console.log('Recording ended.');
+                // After recording ends and file uploads, disconnect from the voice channel
+                stopRecording();
+                voiceChannelUserCounts.delete(channel.id);
+                console.log(`Left the voice channel: ${channel.name}`);
             });
 
             // Start recording immediately after joining the channel
             startRecording(connection);
         } catch (error) {
             console.error(error);
+        }
+    } else if (userCount < 2 && voiceChannelUserCounts.has(channel.id)) {
+        // User count decreased, stop recording and leave the channel
+        stopRecording();
+        voiceChannelUserCounts.delete(channel.id);
+        console.log(`Left the voice channel: ${channel.name}`);
+    }
+}
+
+
+// Function to upload a file to S3
+async function uploadFileToS3(filePath, bucketName, key) {
+    const fileContent = fs.readFileSync(filePath);
+
+    const params = {
+        Bucket: bucketName,
+        Key: key,
+        Body: fileContent,
+        ContentType: 'audio/mpeg' // Set the content type appropriately
+    };
+
+    console.log('Before S3 upload');
+    try {
+        const data = await s3.upload(params).promise();
+        console.log(`Uploaded to S3 successfully: ${data.Location}`);
+
+        // Insert the S3 file path into the database using Prisma
+        try {
+            const createdAudio = await prisma.recordedAudio.create({
+                data: {
+                    filePath: data.Location
+                }
+            });
+    
+            // Log the created record to the console
+            console.log('Audio file path successfully saved in Neon:', createdAudio);
+        } catch (error) {
+            console.error('Error creating audio record in Neon:', error);
+        }
+
+    } catch (error) {
+        console.error('Error uploading to S3:', error);
+    }
+    console.log('After S3 upload');
+}
+
+// Function to stop recording
+async function stopRecording(interaction) {
+    if (!isRecording) {
+        console.log('Not currently recording.');
+        return;
+    }
+
+    if (outputStream) {
+        outputStream.end();
+        outputStream = null;
+
+        console.log("Recording stopped. Combining and converting to .mp3 and .wav...");
+        console.log("Recording Stopped");
+
+        const outputMP3Path = path.join( 'output.mp3'); // Specify the output path for the combined .mp3 file
+        const outputWAVPath = path.join( 'output.wav'); // Specify the output path for the combined .wav file
+
+        // Rest of the code remains the same
+
+        try {
+            // Upload the combined audio file to S3
+            await Promise.all([
+                uploadFileToS3(outputMP3Path, 'YOUR_BUCKET_NAME', 'output.mp3'),
+                uploadFileToS3(outputWAVPath, 'YOUR_BUCKET_NAME', 'output.wav')
+            ]);
+        } catch (error) {
+            console.error('Error uploading to S3:', error);
+        }
+
+        if (interaction) {
+            interaction.reply("Recording stopped. Combining and converting to .mp3 and .wav...");
+        }
+    } else {
+        console.log("No recording in progress.");
+        if (interaction) {
+            interaction.reply("No recording in progress.");
         }
     }
 }
@@ -126,8 +222,7 @@ function startRecording(connection) {
     });
 
     audioStream.on('end', () => {
-        outputStream.end();
-        isRecording = false;
+        stopRecording();
     });
 
     console.log('Started recording.');
@@ -147,6 +242,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
         if (voiceChannelUserCounts.has(oldChannel.id)) {
             voiceChannelUserCounts.set(oldChannel.id, oldUserCount);
         }
+        checkAndJoinVoiceChannel(oldChannel)
     }
 
     if (newChannel) {
@@ -154,116 +250,45 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     }
 });
 
-
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isCommand()) return;
-
     const { commandName } = interaction;
 
+    if (commandName === 'showmodal') {
+        const modal = new ModalBuilder()
+            .setCustomId('myModal')
+            .setTitle('Set meeting');
+
+        // Add components to modal
+
+        // Create the text input components
+        const favoriteColorInput = new TextInputBuilder()
+            .setCustomId('favoriteColorInput')
+            // The label is the prompt the user sees for this input
+            .setLabel("What's your favorite color?")
+            // Short means only a single line of text
+            .setStyle(TextInputStyle.Short);
+
+        const hobbiesInput = new TextInputBuilder()
+            .setCustomId('hobbiesInput')
+            .setLabel("What's some of your favorite hobbies?")
+            // Paragraph means multiple lines of text.
+            .setStyle(TextInputStyle.Paragraph);
+
+        // An action row only holds one text input,
+        // so you need one action row per text input.
+        const firstActionRow = new ActionRowBuilder().addComponents(favoriteColorInput);
+        const secondActionRow = new ActionRowBuilder().addComponents(hobbiesInput);
+
+        // Add inputs to the modal
+        modal.addComponents(firstActionRow, secondActionRow);
+
+        // Show the modal to the user
+        await interaction.showModal(modal);
+    }
+
     if (commandName === 'stop-recording') {
-        if (outputStream) {
-            outputStream.end();
-            outputStream = null;
-
-            interaction.reply("Recording stopped. Combining and converting to .mp3 and .wav...");
-            console.log("Recording Stopped");
-
-            const recordingsDir = './recordings';
-            const outputMP3Path = './output.mp3'; // Specify the output path for the combined .mp3 file
-            const outputWAVPath = './output.wav'; // Specify the output path for the combined .wav file
-            const s3BucketName = 'audiostorage1117777';
-            const s3ObjectKey = 'output.mp3';
-
-            // Read and combine all recorded .pcm files
-            const combinedStreamMP3 = fs.createWriteStream(outputMP3Path);
-            const combinedStreamWAV = fs.createWriteStream(outputWAVPath);
-            const pcmFiles = fs.readdirSync(recordingsDir)
-                .filter(filename => filename.endsWith('.pcm'))
-                .map(filename => path.join(recordingsDir, filename));
-
-            const combinedStream = concat(data => {
-                combinedStreamMP3.write(data);
-                combinedStreamWAV.write(data);
-
-                console.log('Combining finished. Starting conversion to .mp3 and .wav...');
-
-                // Convert the combined .pcm file to .mp3
-                ffmpeg()
-                    .input(outputMP3Path)
-                    .inputFormat('s16le')
-                    .audioCodec('libmp3lame')
-                    .audioBitrate(192)
-                    .on('end', () => {
-                        console.log('Conversion to .mp3 finished');
-                    })
-                    .on('error', (err) => {
-                        console.error('Error converting to .mp3:', err);
-                    })
-                    .save(outputMP3Path);
-
-                // Convert the combined .pcm file to .wav
-                ffmpeg()
-                    .input(outputWAVPath)
-                    .inputFormat('s16le')
-                    .audioCodec('pcm_s16le')
-                    .audioChannels(2)
-                    .on('end', () => {
-                        console.log('Conversion to .wav finished');
-                    })
-                    .on('error', (err) => {
-                        console.error('Error converting to .wav:', err);
-                    })
-                    .save(outputWAVPath);
-                console.log("Recording Finished");
-            });
-
-    console.log("Recording Finished");
-
-
-            pcmFiles.forEach(pcmFile => {
-                const pcmStream = fs.createReadStream(pcmFile);
-                pcmStream.pipe(combinedStream, { end: false });
-            });
-
-            isRecording = false;
-
-            // Check if the .mp3 file exists before attempting to read it
-if (fs.existsSync(outputMP3Path)) {
-    fs.readFile(outputMP3Path, (err, fileData) => {
-        if (err) {
-            console.error('Error reading the .mp3 file:', err);
-            return;
-        }
-
-        const params = {
-            Bucket: s3BucketName,
-            Key: s3ObjectKey,
-            Body: fileData,
-        };
-
-        s3.upload(params, (uploadErr, uploadData) => {
-            if (uploadErr) {
-                console.error('Error uploading the .mp3 file to S3:', uploadErr);
-            } else {
-                console.log('Uploaded .mp3 file to S3:', uploadData.Location);
-            }
-
-            // Clean up the local .mp3 file after uploading
-            fs.unlink(outputMP3Path, (unlinkErr) => {
-                if (unlinkErr) {
-                    console.error('Error deleting the local .mp3 file:', unlinkErr);
-                } else {
-                    console.log('Deleted local .mp3 file.');
-                }
-            });
-        });
-    });
-} else {
-    console.error('The .mp3 file does not exist at the specified path:', outputMP3Path);
-}
-        } else {
-            interaction.reply("No recording in progress.");
-        }
+        stopRecording(interaction);
     }
 
     // ... (other commands)
