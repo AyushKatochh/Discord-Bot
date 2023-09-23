@@ -5,11 +5,12 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
 }
 
 
-model RecordedAudio {
-  id       Int      @id @default(autoincrement())
-  filePath String
+model recordedaudio {
+  id        Int       @id @default(autoincrement())
+  createdat DateTime? @default(now()) @db.Timestamp(6)
+  mp3file   String?   @db.VarChar(255)
+  wavfile   String?   @db.VarChar(255)
 }
