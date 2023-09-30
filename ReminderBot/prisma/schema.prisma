@@ -1,0 +1,20 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Reminder {
+  id            Int      @id @default(autoincrement())
+  author        String  
+  channel_Id    String
+  title         String
+  description   String?
+  reminder_Time DateTime
+  created_at    BigInt
+  updated_at    BigInt
+}
