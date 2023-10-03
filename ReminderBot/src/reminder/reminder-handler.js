@@ -1,13 +1,13 @@
 const { PrismaClient } = require("@prisma/client");
+const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
+const { parseClosingTimeInput, scheduleReminderCheck } = require("../time-parser/time-parser");
 
 const prisma = new PrismaClient();
-const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const { parseClosingTimeInput, scheduleReminderCheck } = require("../time-parser/time-parser");
 
 async function handleReminderCommand(interaction) {
   const modal = new ModalBuilder()
     .setCustomId('reminderModal')
-    .setTitle('Set a Reminder')
+    .setTitle('Set a Reminder');
 
   const titleInput = new TextInputBuilder()
     .setCustomId('titleInput')
@@ -24,9 +24,9 @@ async function handleReminderCommand(interaction) {
     .setLabel('Time (e.g., 2:00 PM)')
     .setStyle(TextInputStyle.Short);
 
-  const firstActionRow = new ActionRowBuilder().addComponents(titleInput)
+  const firstActionRow = new ActionRowBuilder().addComponents(titleInput);
   const secondActionRow = new ActionRowBuilder().addComponents(descriptionInput);
-  const thirdActionRow = new ActionRowBuilder().addComponents(timeInput)
+  const thirdActionRow = new ActionRowBuilder().addComponents(timeInput);
 
   modal.addComponents(firstActionRow, secondActionRow, thirdActionRow);
 
@@ -45,7 +45,7 @@ async function handleReminderSubmission(client, interaction) {
       if (!isNaN(closingTimeInSeconds) && closingTimeInSeconds > 0) {
         const currentTime = Date.now();
         const closingTimestamp = currentTime + closingTimeInSeconds * 1000;
-
+       
         const reminder = {
           userId: interaction.user.id,
           channelId: interaction.channel.id,
@@ -54,60 +54,46 @@ async function handleReminderSubmission(client, interaction) {
           reminderTime: new Date(closingTimestamp),
         };
 
+        // Send the initial reminder message to the channel
+        const reminderMessage = await interaction.reply(`Reminder set. I will remind you at ${new Date(closingTimestamp).toLocaleTimeString()}.`);
+
+        // Schedule the reminder check as before
         await scheduleReminderCheck(reminder, interaction, client);
 
-        const closingTimeString = new Date(closingTimestamp).toLocaleTimeString();
-        const reminderMessage = `Reminder set. I will remind you at ${closingTimeString}.`;
-
-        const reminderSentMessage = await interaction.reply(reminderMessage);
-
+        // Automatically delete the reminder message in the channel after the closing time
         setTimeout(async () => {
+          await interaction.deleteReply();
 
-          const snoozeRow = new ActionRowBuilder()
-            .addComponents(
-              new ButtonBuilder()
-                .setCustomId('snooze_5')
-                .setLabel('Snooze 5m')
-                .setStyle(ButtonStyle.Primary),
-              new ButtonBuilder()
-                .setCustomId('snooze_15')
+          // Send the reminder message with snooze options to the user's DM
+          const dmChannel = await interaction.user.createDM();
+          const snoozeRow = new StringSelectMenuBuilder()
+            .setCustomId("snooze")
+            .setPlaceholder("Snooze according to your time")
+            .addOptions(
+              new StringSelectMenuOptionBuilder()
+                .setLabel('Snooze 1m')
+                .setValue('1'),
+              new StringSelectMenuOptionBuilder()
                 .setLabel('Snooze 15m')
-                .setStyle(ButtonStyle.Primary),
-              new ButtonBuilder()
-                .setCustomId('snooze_25')
+                .setValue('15'),
+              new StringSelectMenuOptionBuilder()
                 .setLabel('Snooze 25m')
-                .setStyle(ButtonStyle.Primary),
-              new ButtonBuilder()
-                .setCustomId('snooze_35')
+                .setValue('25'),
+              new StringSelectMenuOptionBuilder()
                 .setLabel('Snooze 35m')
-                .setStyle(ButtonStyle.Primary),
-              new ButtonBuilder()
-                .setCustomId('snooze_45')
+                .setValue('35'),
+              new StringSelectMenuOptionBuilder()
                 .setLabel('Snooze 45m')
-                .setStyle(ButtonStyle.Primary),
+                .setValue('45'),
             );
-        
-          await reminderSentMessage.edit({
+
+          const row = new ActionRowBuilder().addComponents(snoozeRow);
+
+          await dmChannel.send({
             content: 'Snooze options:',
-            components: [snoozeRow],
+            components: [row],
           });
-        
-          try {
-            const reminderId = parseInt(interaction.id); // Convert the ID to an integer
-        
-            const updatedReminder = await prisma.reminder.update({
-              where: {
-                id: reminderId,
-              },
-              data: {
-                updated_at: Date.now(),
-              },
-            });
-        
-            console.log(`Database updated_at field for Reminder ID ${reminderId} is now ${updatedReminder.updated_at}`);
-          } catch (error) {
-            console.error('Error updating the "updated_at" field in the database:', error);
-          }
+
         }, closingTimeInSeconds * 1000);
       } else {
         await interaction.reply('Invalid time format. Please use a valid format (e.g., 2:00 PM).');

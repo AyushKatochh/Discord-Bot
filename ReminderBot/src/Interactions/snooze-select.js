@@ -2,44 +2,27 @@ const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
 
-async function handleSnoozeButton(interaction) {
+async function handleSnoozeButton(interaction, reminder) {
   try {
-    if (interaction.customId.startsWith('snooze_')) {
-      const snoozeTime = parseInt(interaction.customId.split('_')[1]);
-      
-      // snooze button logic 
+    if (interaction.customId === 'snooze') {
+      const selectedSnoozeValue = interaction.values[0];
+      const snoozeTime = parseInt(selectedSnoozeValue);
+
       await interaction.deferUpdate();
-      await interaction.followUp(`Your reminder is snoozed for ${snoozeTime} minutes.`);
+      await interaction.user.send(`Your reminder is snoozed for ${snoozeTime} minutes.`);
 
       setTimeout(async () => {
-        const originalMessage = await interaction.channel.messages.fetch(interaction.message.id);
-
-        await interaction.followUp({
-          content: `Original Reminder: ${originalMessage.content}`,
-        });
-
         try {
-          // Assuming the reminder ID stored in the database
-          const reminderId = parseInt(interaction.id); // Convert the ID to an integer
-
-          const updatedReminder = await prisma.reminder.update({
-            where: {
-              id: reminderId,
-            },
-            data: {
-              updated_at: Date.now(),
-            },
-          });
-
-          console.log(`Database updated_at field for Reminder ID ${reminderId} is now ${updatedReminder.updated_at}`);
+          const reminderMessage = `**Reminder:**\nTitle: ${reminder.title}\nDescription: ${reminder.description}\nTime: ${new Date(reminder.reminderTime).toLocaleString()}`;
+          await interaction.user.send({ content: reminderMessage });
         } catch (error) {
-          console.error('Error updating the "updated_at" field in the database:', error);
+          console.error('Error handling snooze button interaction:', error);
         }
       }, snoozeTime * 60 * 1000); // Convert minutes to milliseconds
     }
   } catch (error) {
     console.error('Error handling snooze button interaction:', error);
-    await interaction.followUp('An error occurred while processing your snooze request.');
+    await interaction.user.send('An error occurred while processing your snooze request.');
   }
 }
 

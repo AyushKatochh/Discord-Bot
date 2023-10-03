@@ -1,9 +1,19 @@
+const chrono = require('chrono-node');
 const { parse, addDays, startOfDay, startOfWeek, addWeeks } = require('date-fns');
-const {sendReminder} = require("../reminder/send-reminder")
+const { sendReminder } = require("../reminder/send-reminder");
 
 function parseClosingTimeInput(input) {
   if (!input) {
     return 0;
+  }
+
+  // Try using chrono-node to parse the input
+  const parsedTime = chrono.parseDate(input);
+
+  if (parsedTime) {
+    const currentTime = Date.now();
+    const timeDifferenceInSeconds = Math.max(0, parsedTime - currentTime) / 1000;
+    return timeDifferenceInSeconds;
   }
 
   // Regular expressions for various date and time formats
@@ -61,18 +71,17 @@ function parseClosingTimeInput(input) {
 }
 
 async function scheduleReminderCheck(reminder, interaction, client) {
-    const currentTime = Date.now();
-    const timeDifference = reminder.reminderTime - currentTime;
-  
-    if (timeDifference <= 0) {
-      sendReminder(reminder, interaction, client); // Pass the client instance to sendReminder
-    } else {
-      setTimeout(() => {
-        sendReminder(reminder, interaction, client); // Pass the client instance to sendReminder
-      }, timeDifference);
-    }
-  }
+  const currentTime = Date.now();
+  const timeDifference = reminder.reminderTime - currentTime;
 
+  if (timeDifference <= 0) {
+    sendReminder(reminder, interaction, client); // Pass the client instance to sendReminder
+  } else {
+    setTimeout(() => {
+      sendReminder(reminder, interaction, client); // Pass the client instance to sendReminder
+    }, timeDifference);
+  }
+}
 
 module.exports = {
   parseClosingTimeInput,

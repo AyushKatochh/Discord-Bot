@@ -2,6 +2,7 @@ require('dotenv').config();
 const { Client, IntentsBitField } = require('discord.js');
 const { handleReminderCommand, handleReminderSubmission } = require("./reminder/reminder-handler");
 const { handleSnoozeButton } = require("./Interactions/snooze-select");
+const {handleReminder} = require("./reminder/application-reminder");
 
 const client = new Client({
   intents: [
@@ -26,12 +27,22 @@ client.on('interactionCreate', async (interaction) => {
     }
   }
 
+  if (interaction.isMessageContextMenuCommand()) {
+    if (interaction.commandName === "Remind-in-1-hour") {
+       await handleReminder(interaction, 1* 60 * 1000)
+    }
+    
+    if (interaction.commandName === "Remind-in-2-hours") {
+      await handleReminder(interaction, 2* 60* 60 * 1000)
+    }
+  }
+
   if (interaction.isModalSubmit()) {
     await handleReminderSubmission(client, interaction);
   }
 
-  if (interaction.isButton()) {
-    await handleSnoozeButton(interaction);
+  if (interaction.isStringSelectMenu()) {
+    await handleSnoozeButton(interaction, reminder);
   }
 });
 

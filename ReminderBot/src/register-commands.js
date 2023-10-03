@@ -31,6 +31,14 @@ const commands = [
   {
     name: 'reminder',
     description: 'modal to set up reminder'
+  },
+  {
+    name: "Remind-in-1-hour",
+    type: 3
+  },
+  {
+    name: "Remind-in-2-hours",
+    type: 3
   }
 ];
 
