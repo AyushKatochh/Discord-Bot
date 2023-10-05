@@ -26,11 +26,29 @@ const commands = [
         type: 3, // String type
         required: false, // Closing time is optional
       },
+        
     ],
   },
   {
     name: 'reminder',
     description: 'modal to set up reminder'
+  },
+  {
+    name: 'location',
+    description: 'Set your preferred reminder location',
+    type: 1,
+    options: [
+      {
+        name: 'choice',
+        description: 'Choose between DM and Channel',
+        type: ApplicationCommandOptionType.String,
+        required: true,
+        choices: [
+          { name: 'DM', value: 'DM' },
+          { name: 'Channel', value: 'Channel' },
+        ],
+      },
+    ],
   },
   {
     name: "Remind-in-1-hour",
@@ -39,6 +57,24 @@ const commands = [
   {
     name: "Remind-in-2-hours",
     type: 3
+  },{
+    name: 'compose',
+    description: 'Compose a reminder',
+    type: 1, // 1 for SUB_COMMAND, 2 for SUB_COMMAND_GROUP (slash command subcommand)
+    options: [
+      {
+        name: 'text',
+        description: 'The text of the reminder',
+        type: 3, // String type
+        required: true,
+      },
+      {
+        name: 'time',
+        description: 'The time and date for the reminder (e.g., "2:00 PM tomorrow")',
+        type: 3, // String type
+        required: true,
+      },
+    ],
   }
 ];
 

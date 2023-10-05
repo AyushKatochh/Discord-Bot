@@ -2,21 +2,37 @@ const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
 
-async function handleSnoozeButton(interaction, reminder) {
+async function handleSnoozeButton(interaction) {
   try {
     if (interaction.customId === 'snooze') {
       const selectedSnoozeValue = interaction.values[0];
       const snoozeTime = parseInt(selectedSnoozeValue);
 
+      // snooze button logic 
       await interaction.deferUpdate();
-      await interaction.user.send(`Your reminder is snoozed for ${snoozeTime} minutes.`);
+      await interaction.user.send(`Your reminder is snoozed for ${snoozeTime} seconds.`);
 
       setTimeout(async () => {
+        const originalMessage = await interaction.channel.messages.fetch(interaction.message.id);
+
+        await interaction.user.send({
+          content: `Reminder: ${originalMessage.content}`,
+        });
+
         try {
-          const reminderMessage = `**Reminder:**\nTitle: ${reminder.title}\nDescription: ${reminder.description}\nTime: ${new Date(reminder.reminderTime).toLocaleString()}`;
-          await interaction.user.send({ content: reminderMessage });
+
+         await prisma.reminder.update({
+            where: {
+              id: originalMessage,
+            },
+            data: {
+              updated_at: Date.now(),
+            },
+          });
+
+          console.log(`Database updated_at field for Reminder ID`);
         } catch (error) {
-          console.error('Error handling snooze button interaction:', error);
+          console.error('Error updating the "updated_at" field in the database:', error);
         }
       }, snoozeTime * 60 * 1000); // Convert minutes to milliseconds
     }

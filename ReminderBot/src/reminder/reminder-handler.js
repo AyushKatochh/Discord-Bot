@@ -1,5 +1,5 @@
 const { PrismaClient } = require("@prisma/client");
-const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
+const { ModalBuilder, TextInputBuilder, TextInputStyle, ButtonBuilder, ButtonStyle,ActionRowBuilder, StringSelectMenuBuilder, StringSelectMenuOptionBuilder } = require('discord.js');
 const { parseClosingTimeInput, scheduleReminderCheck } = require("../time-parser/time-parser");
 
 const prisma = new PrismaClient();
@@ -45,7 +45,7 @@ async function handleReminderSubmission(client, interaction) {
       if (!isNaN(closingTimeInSeconds) && closingTimeInSeconds > 0) {
         const currentTime = Date.now();
         const closingTimestamp = currentTime + closingTimeInSeconds * 1000;
-       
+
         const reminder = {
           userId: interaction.user.id,
           channelId: interaction.channel.id,
@@ -55,7 +55,17 @@ async function handleReminderSubmission(client, interaction) {
         };
 
         // Send the initial reminder message to the channel
-        const reminderMessage = await interaction.reply(`Reminder set. I will remind you at ${new Date(closingTimestamp).toLocaleTimeString()}.`);
+       await interaction.reply({ content: `Reminder set. I will remind you on ${reminder.reminderTime}`,
+          components: [
+            new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId('resetTimer')
+                .setLabel('Reset Timer')
+                .setStyle(ButtonStyle.Primary),
+             
+            ),
+          ],
+        });
 
         // Schedule the reminder check as before
         await scheduleReminderCheck(reminder, interaction, client);
@@ -72,26 +82,51 @@ async function handleReminderSubmission(client, interaction) {
             .addOptions(
               new StringSelectMenuOptionBuilder()
                 .setLabel('Snooze 1m')
-                .setValue('1'),
+                .setValue('60'), // 1 minute in seconds
               new StringSelectMenuOptionBuilder()
                 .setLabel('Snooze 15m')
-                .setValue('15'),
+                .setValue('900'), // 15 minutes in seconds
               new StringSelectMenuOptionBuilder()
                 .setLabel('Snooze 25m')
-                .setValue('25'),
+                .setValue('1500'), // 25 minutes in seconds
               new StringSelectMenuOptionBuilder()
                 .setLabel('Snooze 35m')
-                .setValue('35'),
+                .setValue('2100'), // 35 minutes in seconds
               new StringSelectMenuOptionBuilder()
                 .setLabel('Snooze 45m')
-                .setValue('45'),
+                .setValue('2700'), // 45 minutes in seconds
             );
 
           const row = new ActionRowBuilder().addComponents(snoozeRow);
 
           await dmChannel.send({
-            content: 'Snooze options:',
+            content: 'Snooze options: ',
             components: [row],
+          });
+
+          // Add another setTimeout for the reminder message after snooze time
+          let snoozeTimeInSeconds;
+
+          const filter = (interaction) => {
+            return interaction.customId === 'snooze' && interaction.isStringSelectMenu();
+          };
+
+          const collector = dmChannel.createMessageComponentCollector({ filter, time: 60000 });
+
+          collector.on('collect', (interaction) => {
+            // Assuming the values are in seconds
+            snoozeTimeInSeconds = parseInt(interaction.values[0]);
+            collector.stop();
+          });
+
+          collector.on('end', (collected, reason) => {
+            if (reason === 'time') {
+            }
+
+            // Continue with the reminder message after snooze time
+            setTimeout(async () => {
+              await dmChannel.send(`Reminder:\n Title: ${title} \nDescription: ${description} \nTime: ${new Date(closingTimestamp).toLocaleTimeString()}.`);
+            }, snoozeTimeInSeconds * 1000);
           });
 
         }, closingTimeInSeconds * 1000);
@@ -102,7 +137,7 @@ async function handleReminderSubmission(client, interaction) {
       console.error('Error handling modal submission:', error);
       await interaction.reply('An error occurred while processing your request.');
     }
-  }
+  } 
 }
 
 module.exports = {
